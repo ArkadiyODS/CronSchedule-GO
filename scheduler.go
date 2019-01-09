@@ -9,33 +9,21 @@ import (
 
 type Scheduler struct {
 	cron *cr.Cron
-	ticker chan string
-	subCh chan chan string
-	unsubCh chan chan string
+	ticker chan interface{}
+	subCh chan chan interface{}
+	unsubCh chan chan interface{}
 	stopCh chan struct{}
-	subscribers map[chan string] struct{}
+	subscribers map[chan interface{}] struct{}
 }
 
 func NewScheduler() *Scheduler {
-	ticker := make(chan  string, 1)
-	subCh := make(chan chan string, 1)
-	unsubCh := make(chan chan string, 1)
+	ticker := make(chan  interface{}, 1)
+	subCh := make(chan chan interface{}, 1)
+	unsubCh := make(chan chan interface{}, 1)
 	stopCh := make(chan  struct{})
-	subscribers :=  make(map[chan string] struct{})
+	subscribers :=  make(map[chan interface{}] struct{})
 	cron := cr.New()
 	cron.Start();
-	cron.AddFunc("@every 1s", func() {
-		select{
-		case ticker <- "1s":
-		default:
-		}
-	})
-	cron.AddFunc("@every 3s", func() {
-		select{
-		case ticker <- "3s":
-		default:
-		}
-	})
 	go func(){
 		for {
 			select{
@@ -69,14 +57,23 @@ func NewScheduler() *Scheduler {
 	}
 }
 
-func (s *Scheduler) Subscribe() chan string  {
-	subscriber := make(chan string, 5)
+func (s *Scheduler) Subscribe() chan interface{}  {
+	subscriber := make(chan interface{}, 5)
 	s.subCh <- subscriber
 	return subscriber;
 }
 
-func (s *Scheduler) Unsubscribe(c chan string) {
+func (s *Scheduler) Unsubscribe(c chan interface{}) {
 	s.unsubCh <- c
+}
+
+func(s *Scheduler) AddSchedule(schedule string, message interface{}) error {
+	return s.cron.AddFunc(schedule, func() {
+		select{
+		case s.ticker <- message:
+		default:
+		}
+	})
 }
 
 func (s *Scheduler) Start()  {
@@ -110,6 +107,10 @@ func main() {
 	go func(){
 		subs2 := s.Subscribe()
 		fmt.Println("Sibscribe secondary listener")
+		err := s.AddSchedule("@every 3s", 3)
+		if err != nil {
+			return
+		}
 		go func(){
 			time.Sleep(5 * time.Second)
 			s.Unsubscribe(subs2)
@@ -122,10 +123,16 @@ func main() {
 
 	// subscribes listener
  	subs1 := s.Subscribe()
+ 	var message string = "1s"
+	err := s.AddSchedule("@every 1s", message)
+	if err != nil {
+		return
+	}
 	fmt.Println("Sibscribe main listener")
  	for tick := range subs1{
-		fmt.Println("Main: ",tick)
+ 		if res,ok := tick.(string); ok == true {
+			fmt.Println("Main: ",res)
+		}
 	}
-
 	fmt.Println("Done")
 }
